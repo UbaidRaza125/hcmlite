@@ -255,24 +255,42 @@ router.post('/auth/login', async (req, res) => {
   });
 });
 
-// Fast Employee Self-Registration (Name, Email, Password)
-router.post('/auth/register-employee', async (req, res) => {
-  const { name, email, password } = req.body;
-  if (!name || typeof name !== 'string' || !name.trim()) {
+// Universal Registration Handler (supports employee self-registration and admin/company creation)
+async function handleUniversalRegistration(req, res) {
+  const {
+    name,
+    fullName,
+    adminName,
+    email,
+    adminEmail,
+    password,
+    adminPassword,
+    companyName,
+    role = 'employee',
+  } = req.body;
+
+  const resolvedName = (name || fullName || adminName || '').trim();
+  const resolvedEmail = (email || adminEmail || '').trim().toLowerCase();
+  const resolvedPassword = password || adminPassword || '';
+
+  if (!resolvedName) {
     return res.status(400).json({ error: 'Full name is required.' });
   }
-  if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+  if (!resolvedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resolvedEmail)) {
     return res.status(400).json({ error: 'Valid corporate or personal email is required.' });
   }
-  if (!password || typeof password !== 'string' || password.length < 6) {
+  if (!resolvedPassword || resolvedPassword.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
 
   const store = loadStore();
+  const targetRole = role === 'admin' ? 'admin' : (role === 'hr' ? 'hr' : 'employee');
+
+  // If organization does not exist, initialize it cleanly
   if (!store.company) {
     const defaultCompany = {
       id: `comp_${Date.now()}`,
-      name: 'Apex Enterprises',
+      name: (companyName || (targetRole === 'admin' ? 'Apex Enterprises' : 'Apex Enterprises')).trim(),
       officeHoursStart: '09:00',
       graceMinutes: 15,
       halfDayHours: 5,
@@ -310,71 +328,76 @@ router.post('/auth/register-employee', async (req, res) => {
       { id: 'hol_3', companyId: defaultCompany.id, name: 'Independence Day', date: `${currentYear}-08-14` },
       { id: 'hol_4', companyId: defaultCompany.id, name: 'Quaid-e-Azam Day', date: `${currentYear}-12-25` },
     ];
+  } else if (companyName && targetRole === 'admin' && (!store.users.some(u => u.role === 'admin'))) {
+    // If company exists but no admin was configured, update company name if provided
+    store.company.name = companyName.trim();
   }
 
-  const cleanEmail = email.trim().toLowerCase();
-  if (store.users.some(u => u.email === cleanEmail) || store.employees.some(e => e.email === cleanEmail)) {
-    return res.status(409).json({ error: `An account with email '${cleanEmail}' already exists.` });
+  // Prevent duplicate email accounts
+  if (store.users.some(u => u.email === resolvedEmail)) {
+    return res.status(409).json({ error: `An account with email '${resolvedEmail}' already exists. Please sign in.` });
   }
 
-  const nameParts = name.trim().split(/\s+/);
-  const firstName = nameParts[0] || 'Employee';
-  const lastName = nameParts.slice(1).join(' ') || 'Staff';
+  const nameParts = resolvedName.split(/\s+/);
+  const firstName = nameParts[0] || 'User';
+  const lastName = nameParts.slice(1).join(' ') || (targetRole === 'admin' ? 'Admin' : 'Staff');
 
-  const dept = store.departments[0] || { id: 'dept_gen', name: 'General' };
-  const count = store.employees.length + 1;
-  const cleanCode = `EMP-${String(count).padStart(3, '0')}`;
+  let newEmployee = null;
+  if (targetRole === 'employee') {
+    const dept = store.departments[0] || { id: 'dept_gen', name: 'General' };
+    const count = store.employees.length + 1;
+    const cleanCode = `EMP-${String(count).padStart(3, '0')}`;
+    const employeeId = `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    newEmployee = {
+      id: employeeId,
+      companyId: store.company.id,
+      employeeCode: cleanCode,
+      firstName,
+      lastName,
+      email: resolvedEmail,
+      phone: '',
+      address: '',
+      departmentId: dept.id,
+      departmentName: dept.name,
+      designation: 'Associate',
+      joiningDate: new Date().toISOString().split('T')[0],
+      basicSalary: 75000,
+      status: 'active',
+      gender: 'unspecified',
+      createdAt: new Date().toISOString(),
+    };
+    store.employees.push(newEmployee);
+  }
 
-  const employeeId = `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-  const newEmployee = {
-    id: employeeId,
-    companyId: store.company.id,
-    employeeCode: cleanCode,
-    firstName,
-    lastName,
-    email: cleanEmail,
-    phone: '',
-    address: '',
-    departmentId: dept.id,
-    departmentName: dept.name,
-    designation: 'Associate',
-    joiningDate: new Date().toISOString().split('T')[0],
-    basicSalary: 75000,
-    status: 'active',
-    gender: 'unspecified',
-    createdAt: new Date().toISOString(),
-  };
-
-  const passwordHash = await hashPassword(password);
+  const passwordHash = await hashPassword(resolvedPassword);
   const newUser = {
     id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     companyId: store.company.id,
-    employeeId: newEmployee.id,
-    name: `${firstName} ${lastName}`,
-    email: cleanEmail,
+    employeeId: newEmployee ? newEmployee.id : null,
+    name: resolvedName,
+    email: resolvedEmail,
     passwordHash,
-    role: 'employee',
+    role: targetRole,
     temporaryPassword: false,
     isActive: true,
     createdAt: new Date().toISOString(),
   };
 
-  store.employees.push(newEmployee);
   store.users.push(newUser);
   saveStore(store);
 
   logAudit({
     actor: newUser,
-    action: 'EMPLOYEE_SELF_REGISTER',
-    entity: 'Employee',
-    entityId: newEmployee.id,
-    details: `Employee ${newEmployee.firstName} ${newEmployee.lastName} (${newEmployee.email}) created account.`,
+    action: targetRole === 'admin' ? 'ADMIN_REGISTER' : 'EMPLOYEE_SELF_REGISTER',
+    entity: targetRole === 'admin' ? 'User' : 'Employee',
+    entityId: newUser.id,
+    details: `${targetRole.toUpperCase()} account ${newUser.name} (${newUser.email}) registered.`,
   });
 
   const token = signToken(newUser);
-  res.status(201).json({
+  return res.status(201).json({
     success: true,
-    message: 'Employee account created successfully.',
+    message: `${targetRole === 'admin' ? 'Admin' : 'Employee'} account created successfully.`,
     token,
     user: {
       id: newUser.id,
@@ -386,8 +409,16 @@ router.post('/auth/register-employee', async (req, res) => {
       temporaryPassword: false,
     },
     employee: newEmployee,
+    company: store.company,
   });
-});
+}
+
+// Map all common registration endpoints so none ever 404
+router.post('/auth/register', handleUniversalRegistration);
+router.post('/auth/signup', handleUniversalRegistration);
+router.post('/auth/register-employee', handleUniversalRegistration);
+router.post('/register', handleUniversalRegistration);
+router.post('/signup', handleUniversalRegistration);
 
 // First-sign-in change password
 router.post('/auth/change-password', authMiddleware, async (req, res) => {

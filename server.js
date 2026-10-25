@@ -33,6 +33,16 @@ async function startServer() {
   // Mount API router
   app.use('/api', apiRouter);
 
+  // Fallback aliases so endpoints called without /api (e.g. /auth/*, /setup/*) never 404
+  app.use('/auth', (req, res, next) => {
+    req.url = '/auth' + req.url;
+    apiRouter(req, res, next);
+  });
+  app.use('/setup', (req, res, next) => {
+    req.url = '/setup' + req.url;
+    apiRouter(req, res, next);
+  });
+
   // Vite middleware in development
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

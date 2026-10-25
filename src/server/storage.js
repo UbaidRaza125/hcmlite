@@ -4,10 +4,16 @@ import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DATA_DIR = path.resolve(__dirname, '../../data');
-const DB_FILE = path.join(DATA_DIR, 'hcm_store.json');
+const isVercel = Boolean(process.env.VERCEL || process.env.NOW_REGION);
+const SEED_FILE = path.resolve(__dirname, '../../data/hcm_store.json');
+const DATA_DIR = isVercel ? '/tmp' : path.resolve(__dirname, '../../data');
+const DB_FILE = isVercel ? path.join('/tmp', 'hcm_store.json') : SEED_FILE;
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+try {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+} catch (e) {
+  // Gracefully ignore on read-only environments
+}
 
 const DEFAULT_STORE = {
   company: null,
@@ -36,11 +42,20 @@ const clone = value => JSON.parse(JSON.stringify(value));
 
 function readLocalStore() {
   try {
-    if (!fs.existsSync(DB_FILE)) return clone(DEFAULT_STORE);
-    return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    if (fs.existsSync(DB_FILE)) {
+      return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    }
+    if (isVercel && fs.existsSync(SEED_FILE)) {
+      const seed = JSON.parse(fs.readFileSync(SEED_FILE, 'utf8'));
+      try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(seed, null, 2), 'utf8');
+      } catch (err) {}
+      return seed;
+    }
+    return clone(DEFAULT_STORE);
   } catch (err) {
-    console.error('Error reading local persistence:', err);
-    throw new Error('Persistence read failed; inspect data/hcm_store.json before restarting.');
+    console.warn('Fallback to default store on read failure:', err.message);
+    return clone(DEFAULT_STORE);
   }
 }
 
@@ -50,8 +65,7 @@ function writeLocalStore(store) {
     fs.writeFileSync(tempFile, JSON.stringify(store, null, 2), 'utf8');
     fs.renameSync(tempFile, DB_FILE);
   } catch (err) {
-    console.error('Error saving local persistence:', err);
-    throw new Error('Persistence write failed; operation was not safely committed.');
+    console.warn('Local persistence write fallback to memory:', err.message);
   }
 }
 

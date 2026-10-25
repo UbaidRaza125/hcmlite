@@ -17,7 +17,7 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { api } from '../../lib/api.js';
 
 export function LoginPage({ initialMode = 'signin' }) {
-  const { login, registerEmployee, completeSetup, refreshUser, isConfigured } = useAuth();
+  const { login, registerUser, completeSetup, refreshUser, isConfigured } = useAuth();
   
   // 'signin' or 'signup'
   const [mode, setMode] = useState(initialMode);
@@ -77,23 +77,21 @@ export function LoginPage({ initialMode = 'signin' }) {
           if (!companyName.trim()) {
             throw new Error('Please enter your company or organization name.');
           }
-          // Create company and root admin account (no latitude/longitude required)
-          const res = await api.initSetup({
+          await registerUser({
+            name: name.trim(),
+            email: email.trim().toLowerCase(),
+            password,
             companyName: companyName.trim(),
-            adminName: name.trim(),
-            adminEmail: email.trim().toLowerCase(),
-            adminPassword: password,
-            officeStart: '09:00',
-            graceMinutes: 15,
-            halfDayHours: 5,
-            officeLat: 24.8607,
-            officeLng: 67.0011,
-            officeRadius: 150,
+            role: 'admin',
           });
-          completeSetup(res);
         } else {
           // Employee registration
-          await registerEmployee(name.trim(), email.trim().toLowerCase(), password);
+          await registerUser({
+            name: name.trim(),
+            email: email.trim().toLowerCase(),
+            password,
+            role: 'employee',
+          });
         }
       } else {
         // Sign In

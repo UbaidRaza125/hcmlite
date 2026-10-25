@@ -59,16 +59,19 @@ export function AuthProvider({ children }) {
     return res;
   };
 
-  const registerEmployee = async (name, email, password) => {
-    const res = await api.registerEmployee({ name, email, password });
+  const registerUser = async ({ name, email, password, role = 'employee', companyName }) => {
+    const res = await api.register({ name, email, password, role, companyName });
     setStoredToken(res.token);
     setToken(res.token);
     setUser(res.user);
-
-    const meRes = await api.getMe();
-    setEmployee(meRes.employee);
-    setCompany(meRes.company);
+    if (res.employee) setEmployee(res.employee);
+    if (res.company) setCompany(res.company);
+    setIsConfigured(true);
     return res;
+  };
+
+  const registerEmployee = async (name, email, password) => {
+    return registerUser({ name, email, password, role: 'employee' });
   };
 
   const logout = () => {
@@ -107,6 +110,7 @@ export function AuthProvider({ children }) {
         isConfigured,
         isLoading,
         login,
+        registerUser,
         registerEmployee,
         logout,
         refreshUser,
