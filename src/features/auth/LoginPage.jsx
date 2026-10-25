@@ -38,17 +38,6 @@ export function LoginPage({ initialMode = 'signin' }) {
   const [needsPasswordChange, setNeedsPasswordChange] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [changingPass, setChangingPass] = useState(false);
-  const [availableAccounts, setAvailableAccounts] = useState([]);
-
-  // Load available demo accounts
-  useEffect(() => {
-    api.getDemoAccounts()
-      .then((accs) => {
-        if (Array.isArray(accs)) setAvailableAccounts(accs);
-      })
-      .catch(() => {});
-  }, [mode]);
-
   // Sync mode if initialMode changes
   useEffect(() => {
     if (initialMode) setMode(initialMode);
@@ -132,24 +121,6 @@ export function LoginPage({ initialMode = 'signin' }) {
       setError(err.message || 'Password update failed.');
     } finally {
       setChangingPass(false);
-    }
-  };
-
-  // 1-click quick demo login for hackathon evaluation
-  const handleQuickLogin = async (targetEmail, defaultPass) => {
-    setEmail(targetEmail);
-    setPassword(defaultPass);
-    setError(null);
-    setIsLoading(true);
-    try {
-      const res = await login(targetEmail, defaultPass);
-      if (res.user.temporaryPassword) {
-        setNeedsPasswordChange(true);
-      }
-    } catch (err) {
-      setError(`Quick login note: ${err.message}. If not set up yet, please create an account.`);
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -400,54 +371,6 @@ export function LoginPage({ initialMode = 'signin' }) {
               </p>
             )}
           </div>
-
-          {/* Quick Demo Access Bar */}
-          {mode === 'signin' && (
-            <div className="mt-6 pt-5 border-t border-slate-100">
-              <span className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-center mb-2.5">
-                Quick Demo Access
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                {availableAccounts.length === 0 ? (
-                  <div className="col-span-2 text-center text-slate-400 text-[11px] py-1 bg-slate-50 rounded-lg p-2 border border-slate-100">
-                    No accounts yet. Click{' '}
-                    <button
-                      type="button"
-                      onClick={() => setMode('signup')}
-                      className="text-indigo-600 font-semibold underline cursor-pointer"
-                    >
-                      Create Account
-                    </button>{' '}
-                    to set up your organization or team.
-                  </div>
-                ) : (
-                  availableAccounts.slice(0, 4).map((acc) => (
-                    <button
-                      key={acc.email}
-                      type="button"
-                      onClick={() => {
-                        const pass =
-                          acc.role === 'admin'
-                            ? 'AdminSecurePass!2026'
-                            : acc.role === 'hr'
-                            ? 'HrPassword!2026'
-                            : 'Password!2026';
-                        handleQuickLogin(acc.email, pass);
-                      }}
-                      className="p-2 text-left rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors cursor-pointer"
-                    >
-                      <span className="font-semibold block text-slate-800 capitalize">
-                        {acc.role} ({acc.name})
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-mono block truncate">
-                        {acc.email}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
 
         </div>
 
