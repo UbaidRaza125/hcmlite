@@ -47,7 +47,10 @@ export function EmployeesView() {
   const [loading360, setLoading360] = useState(false);
 
   // Registration Form
+  const [quickMode, setQuickMode] = useState(true);
   const [regForm, setRegForm] = useState({
+    name: '',
+    password: '',
     employeeCode: '',
     firstName: '',
     lastName: '',
@@ -119,7 +122,19 @@ export function EmployeesView() {
     e.preventDefault();
     setSubmittingReg(true);
     try {
-      const res = await api.createEmployee(regForm);
+      let payload = { ...regForm };
+      if (quickMode) {
+        if (!regForm.name.trim()) throw new Error('Please enter the employee full name.');
+        const parts = regForm.name.trim().split(/\s+/);
+        payload.firstName = parts[0];
+        payload.lastName = parts.slice(1).join(' ') || 'Employee';
+        payload.employeeCode = `EMP-${String(employees.length + 1).padStart(3, '0')}`;
+        payload.departmentId = regForm.departmentId || departments[0]?.id || 'dept_gen';
+        payload.designation = 'Staff';
+        payload.joiningDate = new Date().toISOString().split('T')[0];
+        payload.basicSalary = 80000;
+      }
+      const res = await api.createEmployee(payload);
       setTempCredentials(res.temporaryCredentials);
       await loadEmployees();
     } catch (err) {
@@ -484,96 +499,168 @@ export function EmployeesView() {
           </div>
         ) : (
           <form onSubmit={handleRegisterEmployee} className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <FormField label="Employee Code" required hint="e.g. EMP-001">
-                <Input
-                  value={regForm.employeeCode}
-                  onChange={(e) => setRegForm({ ...regForm, employeeCode: e.target.value.toUpperCase() })}
-                  placeholder="EMP-001"
-                  required
-                />
-              </FormField>
-              <FormField label="First Name" required>
-                <Input
-                  value={regForm.firstName}
-                  onChange={(e) => setRegForm({ ...regForm, firstName: e.target.value })}
-                  placeholder="John"
-                  required
-                />
-              </FormField>
-              <FormField label="Last Name" required>
-                <Input
-                  value={regForm.lastName}
-                  onChange={(e) => setRegForm({ ...regForm, lastName: e.target.value })}
-                  placeholder="Doe"
-                  required
-                />
-              </FormField>
+            <div className="flex rounded-lg bg-slate-100 p-1 mb-2 text-xs font-semibold">
+              <button
+                type="button"
+                onClick={() => setQuickMode(true)}
+                className={`flex-1 py-1.5 rounded-md transition-all ${
+                  quickMode
+                    ? 'bg-white text-indigo-700 shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                ⚡ Quick Add (Name, Email, Password)
+              </button>
+              <button
+                type="button"
+                onClick={() => setQuickMode(false)}
+                className={`flex-1 py-1.5 rounded-md transition-all ${
+                  !quickMode
+                    ? 'bg-white text-indigo-700 shadow-2xs'
+                    : 'text-slate-500 hover:text-slate-900'
+                }`}
+              >
+                📋 Full Profile Details
+              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="Corporate Email" required>
-                <Input
-                  type="email"
-                  value={regForm.email}
-                  onChange={(e) => setRegForm({ ...regForm, email: e.target.value })}
-                  placeholder="john.doe@company.com"
-                  required
-                />
-              </FormField>
-              <FormField label="Phone Number">
-                <Input
-                  value={regForm.phone}
-                  onChange={(e) => setRegForm({ ...regForm, phone: e.target.value })}
-                  placeholder="+92 300 1234567"
-                />
-              </FormField>
-            </div>
+            {quickMode ? (
+              <div className="space-y-3 pt-1">
+                <FormField label="Full Name" required hint="e.g. Ali Khan">
+                  <Input
+                    type="text"
+                    value={regForm.name}
+                    onChange={(e) => setRegForm({ ...regForm, name: e.target.value })}
+                    placeholder="Ali Khan"
+                    required
+                  />
+                </FormField>
 
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="Department" required>
-                <Select
-                  value={regForm.departmentId}
-                  onChange={(e) => setRegForm({ ...regForm, departmentId: e.target.value })}
-                  options={departments.map((d) => ({ value: d.id, label: d.name }))}
-                />
-              </FormField>
-              <FormField label="Designation" required>
-                <Input
-                  value={regForm.designation}
-                  onChange={(e) => setRegForm({ ...regForm, designation: e.target.value })}
-                  placeholder="Senior Software Engineer"
-                  required
-                />
-              </FormField>
-            </div>
+                <FormField label="Corporate Email" required>
+                  <Input
+                    type="email"
+                    value={regForm.email}
+                    onChange={(e) => setRegForm({ ...regForm, email: e.target.value })}
+                    placeholder="ali@company.com"
+                    required
+                  />
+                </FormField>
 
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="Joining Date" required>
-                <Input
-                  type="date"
-                  value={regForm.joiningDate}
-                  onChange={(e) => setRegForm({ ...regForm, joiningDate: e.target.value })}
-                  required
-                />
-              </FormField>
-              <FormField label="Monthly Basic Salary (PKR)" required hint="Gross = 1.5 × Basic">
-                <Input
-                  type="number"
-                  value={regForm.basicSalary}
-                  onChange={(e) => setRegForm({ ...regForm, basicSalary: e.target.value })}
-                  required
-                />
-              </FormField>
-            </div>
+                <FormField label="Password" hint="Optional — leave blank to generate a temporary password">
+                  <Input
+                    type="password"
+                    value={regForm.password}
+                    onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
+                    placeholder="••••••••"
+                  />
+                </FormField>
 
-            <FormField label="Residential Address">
-              <Input
-                value={regForm.address}
-                onChange={(e) => setRegForm({ ...regForm, address: e.target.value })}
-                placeholder="Street address, City"
-              />
-            </FormField>
+                <p className="text-[11px] text-slate-500 italic">
+                  Note: Code, Department, and Salary are auto-assigned with standard defaults and can be customized anytime via Employee 360 view.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-3">
+                  <FormField label="Employee Code" required hint="e.g. EMP-001">
+                    <Input
+                      value={regForm.employeeCode}
+                      onChange={(e) => setRegForm({ ...regForm, employeeCode: e.target.value.toUpperCase() })}
+                      placeholder="EMP-001"
+                      required
+                    />
+                  </FormField>
+                  <FormField label="First Name" required>
+                    <Input
+                      value={regForm.firstName}
+                      onChange={(e) => setRegForm({ ...regForm, firstName: e.target.value })}
+                      placeholder="John"
+                      required
+                    />
+                  </FormField>
+                  <FormField label="Last Name" required>
+                    <Input
+                      value={regForm.lastName}
+                      onChange={(e) => setRegForm({ ...regForm, lastName: e.target.value })}
+                      placeholder="Doe"
+                      required
+                    />
+                  </FormField>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField label="Corporate Email" required>
+                    <Input
+                      type="email"
+                      value={regForm.email}
+                      onChange={(e) => setRegForm({ ...regForm, email: e.target.value })}
+                      placeholder="john.doe@company.com"
+                      required
+                    />
+                  </FormField>
+                  <FormField label="Password" hint="Optional — direct password">
+                    <Input
+                      type="password"
+                      value={regForm.password}
+                      onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
+                      placeholder="••••••••"
+                    />
+                  </FormField>
+                  <FormField label="Phone Number">
+                    <Input
+                      value={regForm.phone}
+                      onChange={(e) => setRegForm({ ...regForm, phone: e.target.value })}
+                      placeholder="+92 300 1234567"
+                    />
+                  </FormField>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField label="Department" required>
+                    <Select
+                      value={regForm.departmentId}
+                      onChange={(e) => setRegForm({ ...regForm, departmentId: e.target.value })}
+                      options={departments.map((d) => ({ value: d.id, label: d.name }))}
+                    />
+                  </FormField>
+                  <FormField label="Designation" required>
+                    <Input
+                      value={regForm.designation}
+                      onChange={(e) => setRegForm({ ...regForm, designation: e.target.value })}
+                      placeholder="Senior Software Engineer"
+                      required
+                    />
+                  </FormField>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField label="Joining Date" required>
+                    <Input
+                      type="date"
+                      value={regForm.joiningDate}
+                      onChange={(e) => setRegForm({ ...regForm, joiningDate: e.target.value })}
+                      required
+                    />
+                  </FormField>
+                  <FormField label="Monthly Basic Salary (PKR)" required hint="Gross = 1.5 × Basic">
+                    <Input
+                      type="number"
+                      value={regForm.basicSalary}
+                      onChange={(e) => setRegForm({ ...regForm, basicSalary: e.target.value })}
+                      required
+                    />
+                  </FormField>
+                </div>
+
+                <FormField label="Residential Address">
+                  <Input
+                    value={regForm.address}
+                    onChange={(e) => setRegForm({ ...regForm, address: e.target.value })}
+                    placeholder="Street address, City"
+                  />
+                </FormField>
+              </>
+            )}
           </form>
         )}
       </Modal>

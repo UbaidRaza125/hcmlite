@@ -59,6 +59,18 @@ export function AuthProvider({ children }) {
     return res;
   };
 
+  const registerEmployee = async (name, email, password) => {
+    const res = await api.registerEmployee({ name, email, password });
+    setStoredToken(res.token);
+    setToken(res.token);
+    setUser(res.user);
+
+    const meRes = await api.getMe();
+    setEmployee(meRes.employee);
+    setCompany(meRes.company);
+    return res;
+  };
+
   const logout = () => {
     setStoredToken(null);
     setToken(null);
@@ -95,6 +107,7 @@ export function AuthProvider({ children }) {
         isConfigured,
         isLoading,
         login,
+        registerEmployee,
         logout,
         refreshUser,
         completeSetup,

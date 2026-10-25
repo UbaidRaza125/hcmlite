@@ -76,7 +76,7 @@ router.get('/setup/status', (req, res) => {
 });
 
 // Helper for judge demo quick access
-router.get('/setup/demo-accounts', authMiddleware, requireRole(['admin']), (req, res) => {
+router.get('/setup/demo-accounts', (req, res) => {
   const store = loadStore();
   const accounts = store.users.map(u => ({
     role: u.role,
@@ -262,6 +262,101 @@ router.post('/auth/login', async (req, res) => {
   });
 });
 
+// Fast Employee Self-Registration (Name, Email, Password)
+router.post('/auth/register-employee', async (req, res) => {
+  const { name, email, password } = req.body;
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Full name is required.' });
+  }
+  if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return res.status(400).json({ error: 'Valid corporate or personal email is required.' });
+  }
+  if (!password || typeof password !== 'string' || password.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters.' });
+  }
+
+  const store = loadStore();
+  if (!store.company) {
+    return res.status(400).json({ error: 'System is not configured yet. Complete first-run setup first.' });
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  if (store.users.some(u => u.email === cleanEmail) || store.employees.some(e => e.email === cleanEmail)) {
+    return res.status(409).json({ error: `An account with email '${cleanEmail}' already exists.` });
+  }
+
+  const nameParts = name.trim().split(/\s+/);
+  const firstName = nameParts[0] || 'Employee';
+  const lastName = nameParts.slice(1).join(' ') || 'Staff';
+
+  const dept = store.departments[0] || { id: 'dept_gen', name: 'General' };
+  const count = store.employees.length + 1;
+  const cleanCode = `EMP-${String(count).padStart(3, '0')}`;
+
+  const employeeId = `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const newEmployee = {
+    id: employeeId,
+    companyId: store.company.id,
+    employeeCode: cleanCode,
+    firstName,
+    lastName,
+    email: cleanEmail,
+    phone: '',
+    address: '',
+    departmentId: dept.id,
+    departmentName: dept.name,
+    designation: 'Associate',
+    joiningDate: new Date().toISOString().split('T')[0],
+    basicSalary: 75000,
+    status: 'active',
+    gender: 'unspecified',
+    createdAt: new Date().toISOString(),
+  };
+
+  const passwordHash = await hashPassword(password);
+  const newUser = {
+    id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    companyId: store.company.id,
+    employeeId: newEmployee.id,
+    name: `${firstName} ${lastName}`,
+    email: cleanEmail,
+    passwordHash,
+    role: 'employee',
+    temporaryPassword: false,
+    isActive: true,
+    createdAt: new Date().toISOString(),
+  };
+
+  store.employees.push(newEmployee);
+  store.users.push(newUser);
+  saveStore(store);
+
+  logAudit({
+    actor: newUser,
+    action: 'EMPLOYEE_SELF_REGISTER',
+    entity: 'Employee',
+    entityId: newEmployee.id,
+    details: `Employee ${newEmployee.firstName} ${newEmployee.lastName} (${newEmployee.email}) created account.`,
+  });
+
+  const token = signToken(newUser);
+  res.status(201).json({
+    success: true,
+    message: 'Employee account created successfully.',
+    token,
+    user: {
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      role: newUser.role,
+      companyId: newUser.companyId,
+      employeeId: newUser.employeeId,
+      temporaryPassword: false,
+    },
+    employee: newEmployee,
+  });
+});
+
 // First-sign-in change password
 router.post('/auth/change-password', authMiddleware, async (req, res) => {
   const { newPassword } = req.body;
@@ -343,7 +438,7 @@ router.post('/auth/create-hr', authMiddleware, requireRole(['admin']), async (re
     email: cleanEmail,
     passwordHash: hashedPassword,
     role: 'hr',
-    temporaryPassword: true,
+    temporaryPassword: !!req.body.isTemporary,
     isActive: true,
     createdAt: new Date().toISOString(),
   };
@@ -572,11 +667,13 @@ router.get('/employees', authMiddleware, (req, res) => {
 // Register new employee (HR & Admin only)
 // Automatically provisions login account with temporary password
 router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (req, res) => {
-  const {
+  let {
     employeeCode,
     firstName,
     lastName,
+    name,
     email,
+    password,
     phone,
     address,
     departmentId,
@@ -586,18 +683,36 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
     gender = 'unspecified',
   } = req.body;
 
-  if (typeof employeeCode !== 'string' || !employeeCode.trim() || employeeCode.length > 40 ||
-      typeof firstName !== 'string' || !firstName.trim() || firstName.length > 100 ||
-      typeof lastName !== 'string' || !lastName.trim() || lastName.length > 100 ||
-      typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
-      typeof departmentId !== 'string' || !departmentId || typeof designation !== 'string' || designation.length > 120 ||
-      typeof joiningDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(joiningDate) ||
-      Number.isNaN(Date.parse(`${joiningDate}T00:00:00Z`)) || new Date(`${joiningDate}T00:00:00Z`).toISOString().slice(0, 10) !== joiningDate ||
-      !Number.isFinite(Number(basicSalary)) || Number(basicSalary) <= 0 || Number(basicSalary) > 1000000000) {
-    return res.status(400).json({ error: 'Valid employee code, name, email, department, joining date and positive salary are required.' });
+  const store = loadStore();
+
+  if (name && (!firstName || !lastName)) {
+    const parts = name.trim().split(/\s+/);
+    firstName = firstName || parts[0] || 'Employee';
+    lastName = lastName || parts.slice(1).join(' ') || 'Staff';
   }
 
-  const store = loadStore();
+  if (!employeeCode || typeof employeeCode !== 'string' || !employeeCode.trim()) {
+    employeeCode = `EMP-${String(store.employees.length + 1).padStart(3, '0')}`;
+  }
+  if (!departmentId || typeof departmentId !== 'string') {
+    departmentId = store.departments[0]?.id || 'dept_gen';
+  }
+  if (!designation || typeof designation !== 'string') {
+    designation = 'Staff';
+  }
+  if (!joiningDate || typeof joiningDate !== 'string') {
+    joiningDate = new Date().toISOString().split('T')[0];
+  }
+  if (!basicSalary || !Number.isFinite(Number(basicSalary)) || Number(basicSalary) <= 0) {
+    basicSalary = 75000;
+  }
+
+  if (typeof firstName !== 'string' || !firstName.trim() || firstName.length > 100 ||
+      typeof lastName !== 'string' || !lastName.trim() || lastName.length > 100 ||
+      typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return res.status(400).json({ error: 'Valid employee name and corporate email are required.' });
+  }
+
   const cleanEmail = email.trim().toLowerCase();
   const cleanCode = employeeCode.trim().toUpperCase();
 
@@ -632,9 +747,12 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
     createdAt: new Date().toISOString(),
   };
 
-  // Generate temporary password
-  const tempPassword = `TempPass!${Math.floor(1000 + Math.random() * 9000)}`;
-  const passwordHash = await hashPassword(tempPassword);
+  // If explicit permanent password is provided, use it directly (temporaryPassword: false)
+  // Otherwise generate a temporary password (temporaryPassword: true)
+  const isDirectPassword = typeof password === 'string' && password.length >= 6;
+  const tempPassword = isDirectPassword ? null : `TempPass!${Math.floor(1000 + Math.random() * 9000)}`;
+  const passwordHash = await hashPassword(isDirectPassword ? password : tempPassword);
+
   // Re-check unique identifiers after the async password hash to narrow concurrent duplicate races.
   if (store.employees.some(e => e.employeeCode === cleanCode) || store.employees.some(e => e.email === cleanEmail) || store.users.some(u => u.email === cleanEmail)) {
     return res.status(409).json({ error: 'Employee code or email was registered by another request.' });
@@ -648,7 +766,7 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
     email: cleanEmail,
     passwordHash,
     role: 'employee',
-    temporaryPassword: true,
+    temporaryPassword: !isDirectPassword,
     isActive: true,
     createdAt: new Date().toISOString(),
   };

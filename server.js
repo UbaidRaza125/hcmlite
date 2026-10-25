@@ -15,7 +15,7 @@ async function startServer() {
   // Load/migrate Firestore before opening the listener so requests never race startup.
   await initializeStore();
   const app = express();
-  const PORT = process.env.PORT || 3000;
+  const PORT = 3000;
 
   // JSON request parser
   app.use(express.json({ limit: '10mb' }));
@@ -40,8 +40,8 @@ async function startServer() {
         middlewareMode: true,
         host: '0.0.0.0',
         port: 3000,
-        hmr: process.env.DISABLE_HMR !== 'true',
-        watch: process.env.DISABLE_HMR === 'true' ? null : {},
+        hmr: false,
+        watch: null,
       },
       appType: 'spa',
     });

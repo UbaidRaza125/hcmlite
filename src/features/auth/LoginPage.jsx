@@ -5,7 +5,9 @@ import { useAuth } from '../../context/AuthContext.jsx';
 import { api } from '../../lib/api.js';
 
 export function LoginPage() {
-  const { login, refreshUser } = useAuth();
+  const { login, registerEmployee, refreshUser } = useAuth();
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -29,12 +31,19 @@ export function LoginPage() {
     setIsLoading(true);
 
     try {
-      const res = await login(email, password);
-      if (res.user.temporaryPassword) {
-        setNeedsPasswordChange(true);
+      if (mode === 'signup') {
+        if (!name.trim()) {
+          throw new Error('Please enter your full name.');
+        }
+        await registerEmployee(name, email, password);
+      } else {
+        const res = await login(email, password);
+        if (res.user.temporaryPassword) {
+          setNeedsPasswordChange(true);
+        }
       }
     } catch (err) {
-      setError(err.message || 'Login failed. Please check credentials.');
+      setError(err.message || 'Operation failed. Please check your details.');
     } finally {
       setIsLoading(false);
     }
@@ -84,14 +93,48 @@ export function LoginPage() {
             H
           </div>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900">
-            Sign in to HCM Lite
+            {mode === 'signup' ? 'Create Employee Account' : 'Sign in to HCM Lite'}
           </h2>
           <p className="mt-1 text-xs text-slate-500">
-            Human Capital Management for Admin, HR, and Employees
+            {mode === 'signup'
+              ? 'Enter your name, email, and password to start using Employee Portal'
+              : 'Human Capital Management for Admin, HR, and Employees'}
           </p>
         </div>
 
         <div className="mt-8 bg-white py-8 px-6 shadow-sm border border-slate-200/80 rounded-2xl sm:px-10">
+          {/* Mode Switcher Tabs */}
+          <div className="flex rounded-lg bg-slate-100 p-1 mb-6 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => {
+                setMode('signin');
+                setError(null);
+              }}
+              className={`flex-1 py-1.5 rounded-md transition-all ${
+                mode === 'signin'
+                  ? 'bg-white text-indigo-700 shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode('signup');
+                setError(null);
+              }}
+              className={`flex-1 py-1.5 rounded-md transition-all ${
+                mode === 'signup'
+                  ? 'bg-white text-indigo-700 shadow-2xs'
+                  : 'text-slate-500 hover:text-slate-900'
+              }`}
+            >
+              + Create Employee Account
+            </button>
+          </div>
+
           {error && (
             <div className="mb-5 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -125,7 +168,19 @@ export function LoginPage() {
             </form>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
-              <FormField label="Email Address" required>
+              {mode === 'signup' && (
+                <FormField label="Full Name" required hint="e.g. Ali Khan">
+                  <Input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Ali Khan"
+                    required
+                  />
+                </FormField>
+              )}
+
+              <FormField label="Corporate Email Address" required>
                 <Input
                   type="email"
                   value={email}
@@ -135,7 +190,7 @@ export function LoginPage() {
                 />
               </FormField>
 
-              <FormField label="Password" required>
+              <FormField label="Password" required hint="At least 6 characters">
                 <Input
                   type="password"
                   value={password}
@@ -152,7 +207,7 @@ export function LoginPage() {
                 isLoading={isLoading}
                 className="w-full font-semibold shadow-xs"
               >
-                Sign In
+                {mode === 'signup' ? 'Create Account & Enter Portal' : 'Sign In'}
               </Button>
             </form>
           )}
