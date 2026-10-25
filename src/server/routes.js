@@ -61,6 +61,94 @@ function aiRateLimit(req, res, next) {
   next();
 }
 
+// Helpers to guarantee system never suffers from empty reference collections or missing employee links
+function ensureDefaultDepartments(store) {
+  if (!store.departments || store.departments.length === 0) {
+    const compId = store.company?.id || 'comp_default';
+    store.departments = [
+      { id: 'dept_eng', companyId: compId, name: 'Engineering', code: 'ENG' },
+      { id: 'dept_hr', companyId: compId, name: 'Human Resources', code: 'HR' },
+      { id: 'dept_fin', companyId: compId, name: 'Finance', code: 'FIN' },
+      { id: 'dept_ops', companyId: compId, name: 'Operations', code: 'OPS' },
+      { id: 'dept_mkt', companyId: compId, name: 'Marketing', code: 'MKT' },
+    ];
+    saveStore(store);
+  }
+  return store.departments;
+}
+
+function ensureDefaultLeaveTypes(store) {
+  if (!store.leaveTypes || store.leaveTypes.length === 0) {
+    const compId = store.company?.id || 'comp_default';
+    store.leaveTypes = [
+      { id: 'lt_annual', companyId: compId, name: 'Annual Leave', quota: 14, quotaDays: 14, isPaid: true },
+      { id: 'lt_casual', companyId: compId, name: 'Casual Leave', quota: 10, quotaDays: 10, isPaid: true },
+      { id: 'lt_sick', companyId: compId, name: 'Sick Leave', quota: 8, quotaDays: 8, isPaid: true },
+      { id: 'lt_unpaid', companyId: compId, name: 'Unpaid Leave', quota: 30, quotaDays: 30, isPaid: false },
+    ];
+    saveStore(store);
+  }
+  return store.leaveTypes;
+}
+
+function ensureDefaultHolidays(store) {
+  if (!store.holidays || store.holidays.length === 0) {
+    const compId = store.company?.id || 'comp_default';
+    const currentYear = new Date().getFullYear();
+    store.holidays = [
+      { id: 'hol_1', companyId: compId, name: 'New Year', date: `${currentYear}-01-01` },
+      { id: 'hol_2', companyId: compId, name: 'Labour Day', date: `${currentYear}-05-01` },
+      { id: 'hol_3', companyId: compId, name: 'Independence Day', date: `${currentYear}-08-14` },
+      { id: 'hol_4', companyId: compId, name: 'Quaid-e-Azam Day', date: `${currentYear}-12-25` },
+    ];
+    saveStore(store);
+  }
+  return store.holidays;
+}
+
+function getOrProvisionEmployee(store, user) {
+  if (!user) return null;
+  ensureDefaultDepartments(store);
+  ensureDefaultLeaveTypes(store);
+  let employee = user.employeeId ? store.employees.find(e => e.id === user.employeeId) : null;
+  if (!employee && user.email) {
+    employee = store.employees.find(e => e.email.toLowerCase() === user.email.toLowerCase());
+  }
+  if (!employee) {
+    const nameParts = (user.name || 'Staff User').trim().split(/\s+/);
+    const firstName = nameParts[0] || 'Staff';
+    const lastName = nameParts.slice(1).join(' ') || 'Employee';
+    const dept = (store.departments && store.departments[0]) || { id: 'dept_gen', name: 'General' };
+    const count = (store.employees || []).length + 1;
+    const cleanCode = `EMP-${String(count).padStart(3, '0')}`;
+    employee = {
+      id: `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      companyId: store.company?.id || `comp_${Date.now()}`,
+      employeeCode: cleanCode,
+      firstName,
+      lastName,
+      email: user.email.toLowerCase(),
+      phone: '',
+      address: '',
+      departmentId: dept.id,
+      departmentName: dept.name,
+      designation: user.role === 'admin' ? 'Administrator' : (user.role === 'hr' ? 'HR Specialist' : 'Associate'),
+      joiningDate: new Date().toISOString().split('T')[0],
+      basicSalary: 75000,
+      status: 'active',
+      gender: 'unspecified',
+      createdAt: new Date().toISOString(),
+    };
+    store.employees.push(employee);
+    const userInStore = store.users.find(u => u.id === user.id || u.email.toLowerCase() === user.email.toLowerCase());
+    if (userInStore) {
+      userInStore.employeeId = employee.id;
+    }
+    user.employeeId = employee.id;
+    saveStore(store);
+  }
+  return employee;
+}
 
 // ==========================================
 // MODULE 1: SETUP & AUTHENTICATION
@@ -457,10 +545,9 @@ router.get('/auth/me', authMiddleware, (req, res) => {
     return res.status(404).json({ error: 'User not found.' });
   }
 
-  let employeeProfile = null;
-  if (user.employeeId) {
-    employeeProfile = store.employees.find(e => e.id === user.employeeId) || null;
-  }
+  ensureDefaultDepartments(store);
+  ensureDefaultLeaveTypes(store);
+  const employeeProfile = getOrProvisionEmployee(store, user);
 
   res.json({
     user: {
@@ -469,7 +556,7 @@ router.get('/auth/me', authMiddleware, (req, res) => {
       email: user.email,
       role: user.role,
       companyId: user.companyId,
-      employeeId: user.employeeId || null,
+      employeeId: employeeProfile?.id || user.employeeId || null,
       temporaryPassword: !!user.temporaryPassword,
     },
     employee: employeeProfile,
@@ -606,7 +693,8 @@ router.put('/org/settings', authMiddleware, requireRole(['admin']), (req, res) =
 // Departments & Designations
 router.get('/org/departments', authMiddleware, (req, res) => {
   const store = loadStore();
-  const deptsWithCount = store.departments.map(d => {
+  const departments = ensureDefaultDepartments(store);
+  const deptsWithCount = departments.map(d => {
     const count = store.employees.filter(e => e.departmentId === d.id && e.status === 'active').length;
     return { ...d, headCount: count };
   });
@@ -640,12 +728,20 @@ router.post('/org/departments', authMiddleware, requireRole(['admin']), (req, re
 
 router.get('/org/leave-types', authMiddleware, (req, res) => {
   const store = loadStore();
-  res.json(store.leaveTypes);
+  const types = ensureDefaultLeaveTypes(store);
+  res.json(types);
+});
+
+router.get('/leave/types', authMiddleware, (req, res) => {
+  const store = loadStore();
+  const types = ensureDefaultLeaveTypes(store);
+  res.json(types);
 });
 
 router.get('/org/holidays', authMiddleware, (req, res) => {
   const store = loadStore();
-  res.json(store.holidays);
+  const holidays = ensureDefaultHolidays(store);
+  res.json(holidays);
 });
 
 router.post('/org/holidays', authMiddleware, requireRole(['admin']), (req, res) => {
@@ -1119,7 +1215,9 @@ router.get('/attendance/today', authMiddleware, (req, res) => {
   const today = new Date().toISOString().split('T')[0];
 
   if (req.user.role === 'employee') {
-    const myRecord = store.attendance.find(a => a.employeeId === req.user.employeeId && a.date === today) || null;
+    const employee = getOrProvisionEmployee(store, req.user);
+    const empId = employee ? employee.id : req.user.employeeId;
+    const myRecord = store.attendance.find(a => a.employeeId === empId && a.date === today) || null;
     return res.json({ today, records: myRecord ? [myRecord] : [] });
   }
 
@@ -1165,13 +1263,11 @@ router.get('/attendance/today', authMiddleware, (req, res) => {
 // Web & Camera check-in
 router.post('/attendance/check-in', authMiddleware, (req, res) => {
   const store = loadStore();
-  const employeeId = req.user.employeeId;
-  if (!employeeId) {
-    return res.status(400).json({ error: 'Only employee accounts can check in.' });
+  const employee = getOrProvisionEmployee(store, req.user);
+  if (!employee) {
+    return res.status(404).json({ error: 'Employee record could not be established.' });
   }
-
-  const employee = store.employees.find(e => e.id === employeeId);
-  if (!employee) return res.status(404).json({ error: 'Employee record not found.' });
+  const employeeId = employee.id;
 
   // Server stamps timestamp!
   const now = new Date();
@@ -1259,8 +1355,9 @@ router.post('/attendance/check-in', authMiddleware, (req, res) => {
 // Check-out
 router.post('/attendance/check-out', authMiddleware, (req, res) => {
   const store = loadStore();
-  const employeeId = req.user.employeeId;
-  if (!employeeId) return res.status(400).json({ error: 'Only employees can check out.' });
+  const employee = getOrProvisionEmployee(store, req.user);
+  if (!employee) return res.status(404).json({ error: 'Employee record could not be established.' });
+  const employeeId = employee.id;
 
   const now = new Date();
   const today = now.toISOString().split('T')[0];
@@ -1304,8 +1401,9 @@ router.post('/attendance/check-out', authMiddleware, (req, res) => {
 // Employee's own attendance history
 router.get('/attendance/my', authMiddleware, (req, res) => {
   const store = loadStore();
-  const employeeId = req.user.employeeId;
-  if (!employeeId) return res.status(400).json({ error: 'No employee account linked.' });
+  const employee = getOrProvisionEmployee(store, req.user);
+  const employeeId = employee ? employee.id : req.user.employeeId;
+  if (!employeeId) return res.json([]);
 
   const records = store.attendance.filter(a => a.employeeId === employeeId).sort((a, b) => b.date.localeCompare(a.date));
   res.json(records);
@@ -1386,12 +1484,14 @@ router.put('/attendance/correction/:id', authMiddleware, requireRole(['admin', '
 // Get leave balances
 router.get('/leave/balances', authMiddleware, (req, res) => {
   const store = loadStore();
-  const targetEmpId = req.query.employeeId || req.user.employeeId;
-  if (req.user.role === 'employee' && targetEmpId !== req.user.employeeId) {
+  ensureDefaultLeaveTypes(store);
+  ensureDefaultHolidays(store);
+  const employee = getOrProvisionEmployee(store, req.user);
+  const targetEmpId = req.query.employeeId || employee?.id || req.user.employeeId;
+  if (!targetEmpId) return res.json([]);
+  if (req.user.role === 'employee' && targetEmpId !== (employee?.id || req.user.employeeId)) {
     return res.status(403).json({ error: 'Access denied: You can only view your own leave balance.' });
   }
-  if (!targetEmpId) return res.status(400).json({ error: 'Employee ID is required.' });
-  if (!['admin', 'hr', 'employee'].includes(req.user.role)) return res.status(403).json({ error: 'Access denied.' });
   res.json(calculateLeaveBalances({
     employeeId: targetEmpId,
     leaveRequests: store.leaveRequests,
@@ -1403,17 +1503,18 @@ router.get('/leave/balances', authMiddleware, (req, res) => {
 // Apply for leave
 router.post('/leave/apply', authMiddleware, (req, res) => {
   const store = loadStore();
-  const employeeId = req.user.employeeId;
-  if (!employeeId) return res.status(400).json({ error: 'Only employees can apply for leave.' });
+  ensureDefaultLeaveTypes(store);
+  ensureDefaultHolidays(store);
+  const employee = getOrProvisionEmployee(store, req.user);
+  if (!employee) return res.status(404).json({ error: 'Your employee profile could not be found.' });
+  const employeeId = employee.id;
 
   const { leaveTypeId, startDate, endDate, reason } = req.body;
   if (!leaveTypeId || !startDate || !endDate || !reason) {
     return res.status(400).json({ error: 'Leave type, start date, end date, and reason are required.' });
   }
 
-  const employee = store.employees.find(e => e.id === employeeId);
-  if (!employee) return res.status(404).json({ error: 'Your employee profile could not be found.' });
-  const leaveType = store.leaveTypes.find(l => l.id === leaveTypeId);
+  const leaveType = store.leaveTypes.find(l => l.id === leaveTypeId) || store.leaveTypes[0];
   if (!leaveType) return res.status(400).json({ error: 'Select a valid leave type configured by your company.' });
   const validDate = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
   if (!validDate(startDate) || !validDate(endDate)) return res.status(400).json({ error: 'Dates must be valid calendar dates in YYYY-MM-DD format.' });
@@ -1437,7 +1538,7 @@ router.post('/leave/apply', authMiddleware, (req, res) => {
   }
 
   // Rule: Reject requests that exceed available quota (HTTP 422)
-  const maxQuota = Math.max(0, Number(leaveType.quotaDays) || 0);
+  const maxQuota = Math.max(0, Number(leaveType.quotaDays !== undefined ? leaveType.quotaDays : leaveType.quota) || 0);
   const unlimitedQuota = !leaveType.isPaid || /unpaid/i.test(leaveType.name) || maxQuota >= 999999;
   const currentUsed = store.leaveRequests
     .filter(l => l.employeeId === employeeId && l.leaveTypeId === leaveType.id && ['approved', 'pending'].includes(l.status))

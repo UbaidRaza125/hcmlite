@@ -22,18 +22,25 @@ import { api } from '../../lib/api.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { getWorkingDaysCount } from '../../lib/businessRules.js';
 
+const DEFAULT_LEAVE_TYPES = [
+  { id: 'lt_annual', name: 'Annual Leave', quota: 14, quotaDays: 14 },
+  { id: 'lt_casual', name: 'Casual Leave', quota: 10, quotaDays: 10 },
+  { id: 'lt_sick', name: 'Sick Leave', quota: 8, quotaDays: 8 },
+  { id: 'lt_unpaid', name: 'Unpaid Leave', quota: 30, quotaDays: 30 },
+];
+
 export function LeaveView({ onOpenAiWithPrompt }) {
   const { user } = useAuth();
   const [balances, setBalances] = useState(null);
   const [requests, setRequests] = useState([]);
-  const [leaveTypes, setLeaveTypes] = useState([]);
+  const [leaveTypes, setLeaveTypes] = useState(DEFAULT_LEAVE_TYPES);
   const [holidays, setHolidays] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Apply Modal
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [applyForm, setApplyForm] = useState({
-    leaveTypeId: '',
+    leaveTypeId: 'lt_annual',
     startDate: '',
     endDate: '',
     reason: '',
@@ -60,10 +67,11 @@ export function LeaveView({ onOpenAiWithPrompt }) {
       ]);
       setBalances(balRes);
       setRequests(reqRes);
-      setLeaveTypes(typesRes);
-      setHolidays(holsRes);
-      if (typesRes.length > 0 && !applyForm.leaveTypeId) {
-        setApplyForm((prev) => ({ ...prev, leaveTypeId: typesRes[0].id }));
+      const effectiveTypes = (Array.isArray(typesRes) && typesRes.length > 0) ? typesRes : DEFAULT_LEAVE_TYPES;
+      setLeaveTypes(effectiveTypes);
+      setHolidays(Array.isArray(holsRes) ? holsRes : []);
+      if (!applyForm.leaveTypeId || !effectiveTypes.some(t => t.id === applyForm.leaveTypeId)) {
+        setApplyForm((prev) => ({ ...prev, leaveTypeId: effectiveTypes[0]?.id || 'lt_annual' }));
       }
     } catch (err) {
       console.error(err);
@@ -329,9 +337,12 @@ export function LeaveView({ onOpenAiWithPrompt }) {
 
           <FormField label="Leave Category" required>
             <Select
-              value={applyForm.leaveTypeId}
+              value={applyForm.leaveTypeId || (leaveTypes[0]?.id || 'lt_annual')}
               onChange={(e) => setApplyForm({ ...applyForm, leaveTypeId: e.target.value })}
-              options={leaveTypes.map((l) => ({ value: l.id, label: `${l.name} (${l.quotaDays > 100 ? 'Unlimited' : `${l.quotaDays}d`})` }))}
+              options={(leaveTypes.length > 0 ? leaveTypes : DEFAULT_LEAVE_TYPES).map((l) => ({
+                value: l.id,
+                label: `${l.name} (${(l.quotaDays || l.quota) >= 100 ? 'Unlimited' : `${l.quotaDays || l.quota}d`})`
+              }))}
             />
           </FormField>
 

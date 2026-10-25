@@ -78,7 +78,7 @@ export function calculateLeaveBalances({ employeeId, leaveRequests = [], leaveTy
         : getWorkingDaysCount(clippedStart, clippedEnd, holidays);
       return total + days;
     }, 0);
-    const quota = Math.max(0, Number(type.quotaDays) || 0);
+    const quota = Math.max(0, Number(type.quotaDays !== undefined ? type.quotaDays : type.quota) || 0);
     const unlimited = !type.isPaid || /unpaid/i.test(type.name) || quota >= 999999;
     const key = /annual/i.test(type.name) ? 'annual'
       : /sick/i.test(type.name) ? 'sick'
