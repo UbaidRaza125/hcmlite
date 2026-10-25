@@ -1,0 +1,17 @@
+{
+  "company": null,
+  "users": [],
+  "departments": [],
+  "designations": [],
+  "leaveTypes": [],
+  "holidays": [],
+  "employees": [],
+  "attendance": [],
+  "leaveRequests": [],
+  "payrollRuns": [],
+  "payslips": [],
+  "announcements": [],
+  "notifications": [],
+  "auditLogs": [],
+  "aiLogs": []
+}

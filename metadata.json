@@ -1,0 +1,6 @@
+{
+  "name": "HCM Lite",
+  "description": "AI-assisted Human Capital Management system for Admin, HR, and Employees with attendance, leave, payroll, analytics, and intelligent assistant.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

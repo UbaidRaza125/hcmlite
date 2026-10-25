@@ -1,0 +1,12 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // HCM Lite currently authenticates through its own server-issued JWT, not Firebase Auth.
+    // Therefore browser clients must not read or mutate HR data directly. The server-only
+    // Firebase Admin adapter writes these collections and must enforce RBAC in the API.
+    // Admin SDK access bypasses these rules; never expose service-account credentials to a browser.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
