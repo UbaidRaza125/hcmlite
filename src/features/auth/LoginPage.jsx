@@ -84,6 +84,13 @@ export function LoginPage({ initialMode = 'signin' }) {
             companyName: companyName.trim(),
             role: 'admin',
           });
+        } else if (signupType === 'hr') {
+          await registerUser({
+            name: name.trim(),
+            email: email.trim().toLowerCase(),
+            password,
+            role: 'hr',
+          });
         } else {
           // Employee registration
           await registerUser({
@@ -248,33 +255,47 @@ export function LoginPage({ initialMode = 'signin' }) {
                   <label className="block text-xs font-semibold text-slate-700">
                     Account Category
                   </label>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="grid grid-cols-3 gap-2 text-xs">
                     <button
                       type="button"
                       onClick={() => setSignupType('organization')}
-                      className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
                         signupType === 'organization'
-                          ? 'border-indigo-600 bg-indigo-50/50 text-indigo-950 font-semibold'
+                          ? 'border-indigo-600 bg-indigo-50/50 text-indigo-950 font-semibold shadow-2xs'
                           : 'border-slate-200 text-slate-600 hover:border-slate-300'
                       }`}
                     >
-                      <Building2 className={`w-4 h-4 mb-1 ${signupType === 'organization' ? 'text-indigo-600' : 'text-slate-400'}`} />
-                      <div className="leading-tight">Company / Admin</div>
-                      <div className="text-[10px] text-slate-400 font-normal mt-0.5">Setup organization</div>
+                      <Building2 className={`w-3.5 h-3.5 mb-1 ${signupType === 'organization' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                      <div className="leading-tight text-[11px]">Company / Admin</div>
+                      <div className="text-[9px] text-slate-400 font-normal mt-0.5">Admin & Org</div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSignupType('hr')}
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                        signupType === 'hr'
+                          ? 'border-indigo-600 bg-indigo-50/50 text-indigo-950 font-semibold shadow-2xs'
+                          : 'border-slate-200 text-slate-600 hover:border-slate-300'
+                      }`}
+                    >
+                      <Shield className={`w-3.5 h-3.5 mb-1 ${signupType === 'hr' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                      <div className="leading-tight text-[11px]">HR Specialist</div>
+                      <div className="text-[9px] text-slate-400 font-normal mt-0.5">HR & Payroll</div>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => setSignupType('employee')}
-                      className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
                         signupType === 'employee'
-                          ? 'border-indigo-600 bg-indigo-50/50 text-indigo-950 font-semibold'
+                          ? 'border-indigo-600 bg-indigo-50/50 text-indigo-950 font-semibold shadow-2xs'
                           : 'border-slate-200 text-slate-600 hover:border-slate-300'
                       }`}
                     >
-                      <User className={`w-4 h-4 mb-1 ${signupType === 'employee' ? 'text-indigo-600' : 'text-slate-400'}`} />
-                      <div className="leading-tight">Employee Account</div>
-                      <div className="text-[10px] text-slate-400 font-normal mt-0.5">Team self-register</div>
+                      <User className={`w-3.5 h-3.5 mb-1 ${signupType === 'employee' ? 'text-indigo-600' : 'text-slate-400'}`} />
+                      <div className="leading-tight text-[11px]">Employee</div>
+                      <div className="text-[9px] text-slate-400 font-normal mt-0.5">Staff Portal</div>
                     </button>
                   </div>
 

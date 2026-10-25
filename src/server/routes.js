@@ -62,9 +62,38 @@ function aiRateLimit(req, res, next) {
 }
 
 // Helpers to guarantee system never suffers from empty reference collections or missing employee links
+function ensureCompany(store) {
+  if (!store.company) {
+    store.company = {
+      id: 'comp_default',
+      name: 'Apex Enterprises',
+      officeHoursStart: '09:00',
+      graceMinutes: 15,
+      halfDayHours: 5,
+      weekendDays: [0, 6],
+      officeLat: 24.8607,
+      officeLng: 67.0011,
+      officeRadius: 150,
+      setupCompletedAt: new Date().toISOString(),
+    };
+    saveStore(store);
+  }
+  return store.company;
+}
+
+function generateNextEmployeeCode(store) {
+  const employees = store.employees || [];
+  let num = employees.length + 1;
+  while (employees.some(e => e.employeeCode === `EMP-${String(num).padStart(3, '0')}`)) {
+    num++;
+  }
+  return `EMP-${String(num).padStart(3, '0')}`;
+}
+
 function ensureDefaultDepartments(store) {
+  ensureCompany(store);
   if (!store.departments || store.departments.length === 0) {
-    const compId = store.company?.id || 'comp_default';
+    const compId = store.company.id;
     store.departments = [
       { id: 'dept_eng', companyId: compId, name: 'Engineering', code: 'ENG' },
       { id: 'dept_hr', companyId: compId, name: 'Human Resources', code: 'HR' },
@@ -431,10 +460,11 @@ async function handleUniversalRegistration(req, res) {
   const lastName = nameParts.slice(1).join(' ') || (targetRole === 'admin' ? 'Admin' : 'Staff');
 
   let newEmployee = null;
-  if (targetRole === 'employee') {
-    const dept = store.departments[0] || { id: 'dept_gen', name: 'General' };
-    const count = store.employees.length + 1;
-    const cleanCode = `EMP-${String(count).padStart(3, '0')}`;
+  if (targetRole === 'employee' || targetRole === 'hr') {
+    ensureDefaultDepartments(store);
+    const hrDept = store.departments.find(d => d.id === 'dept_hr' || d.code === 'HR') || store.departments[0] || { id: 'dept_hr', name: 'Human Resources' };
+    const dept = targetRole === 'hr' ? hrDept : (store.departments[0] || { id: 'dept_gen', name: 'General' });
+    const cleanCode = generateNextEmployeeCode(store);
     const employeeId = `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
     newEmployee = {
       id: employeeId,
@@ -447,9 +477,9 @@ async function handleUniversalRegistration(req, res) {
       address: '',
       departmentId: dept.id,
       departmentName: dept.name,
-      designation: 'Associate',
+      designation: targetRole === 'hr' ? 'HR Specialist' : 'Associate',
       joiningDate: new Date().toISOString().split('T')[0],
-      basicSalary: 75000,
+      basicSalary: targetRole === 'hr' ? 95000 : 75000,
       status: 'active',
       gender: 'unspecified',
       createdAt: new Date().toISOString(),
@@ -476,7 +506,7 @@ async function handleUniversalRegistration(req, res) {
 
   logAudit({
     actor: newUser,
-    action: targetRole === 'admin' ? 'ADMIN_REGISTER' : 'EMPLOYEE_SELF_REGISTER',
+    action: targetRole === 'admin' ? 'ADMIN_REGISTER' : (targetRole === 'hr' ? 'HR_REGISTER' : 'EMPLOYEE_SELF_REGISTER'),
     entity: targetRole === 'admin' ? 'User' : 'Employee',
     entityId: newUser.id,
     details: `${targetRole.toUpperCase()} account ${newUser.name} (${newUser.email}) registered.`,
@@ -485,7 +515,7 @@ async function handleUniversalRegistration(req, res) {
   const token = signToken(newUser);
   return res.status(201).json({
     success: true,
-    message: `${targetRole === 'admin' ? 'Admin' : 'Employee'} account created successfully.`,
+    message: `${targetRole === 'admin' ? 'Admin' : (targetRole === 'hr' ? 'HR' : 'Employee')} account created successfully.`,
     token,
     user: {
       id: newUser.id,
@@ -564,27 +594,63 @@ router.get('/auth/me', authMiddleware, (req, res) => {
   });
 });
 
-// Admin creates HR login
-router.post('/auth/create-hr', authMiddleware, requireRole(['admin']), async (req, res) => {
+// Admin or HR creates HR login
+router.post('/auth/create-hr', authMiddleware, requireRole(['admin', 'hr']), async (req, res) => {
   const { name, email, password } = req.body;
   if (typeof name !== 'string' || !name.trim() || name.trim().length > 120 ||
       typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
-      typeof password !== 'string' || password.length < 8 || password.length > 128) {
-    return res.status(400).json({ error: 'Name, valid email, and password (8–128 characters) are required.' });
+      typeof password !== 'string' || password.length < 6 || password.length > 128) {
+    return res.status(400).json({ error: 'Name, valid email, and password (at least 6 characters) are required.' });
   }
 
   const store = loadStore();
+  ensureCompany(store);
+  ensureDefaultDepartments(store);
+  ensureDefaultLeaveTypes(store);
+
   const cleanEmail = email.trim().toLowerCase();
   if (store.users.some(u => u.email === cleanEmail)) {
     return res.status(409).json({ error: 'A user account with this email already exists.' });
   }
 
   const hashedPassword = await hashPassword(password);
-  if (store.users.some(u => u.email === cleanEmail)) return res.status(409).json({ error: 'A user account with this email already exists.' });
+  
+  // Also create employee profile for HR
+  const nameParts = name.trim().split(/\s+/);
+  const firstName = nameParts[0] || 'HR';
+  const lastName = nameParts.slice(1).join(' ') || 'Specialist';
+  const hrDept = store.departments.find(d => d.id === 'dept_hr' || d.code === 'HR') || store.departments[0] || { id: 'dept_hr', name: 'Human Resources' };
+  const empCode = generateNextEmployeeCode(store);
+  const hrEmpId = `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+  let hrEmployee = store.employees.find(e => e.email === cleanEmail);
+  if (!hrEmployee) {
+    hrEmployee = {
+      id: hrEmpId,
+      companyId: store.company.id,
+      employeeCode: empCode,
+      firstName,
+      lastName,
+      email: cleanEmail,
+      phone: req.body.phone || '',
+      address: '',
+      departmentId: hrDept.id,
+      departmentName: hrDept.name,
+      designation: 'HR Specialist',
+      joiningDate: new Date().toISOString().split('T')[0],
+      basicSalary: 95000,
+      status: 'active',
+      gender: 'unspecified',
+      createdAt: new Date().toISOString(),
+    };
+    store.employees.push(hrEmployee);
+  }
+
   const hrUser = {
     id: `user_hr_${Date.now()}`,
     companyId: store.company.id,
-    name,
+    employeeId: hrEmployee.id,
+    name: name.trim(),
     email: cleanEmail,
     passwordHash: hashedPassword,
     role: 'hr',
@@ -601,13 +667,14 @@ router.post('/auth/create-hr', authMiddleware, requireRole(['admin']), async (re
     action: 'CREATE_HR_USER',
     entity: 'User',
     entityId: hrUser.id,
-    details: `Admin created HR account for ${hrUser.email}`,
+    details: `${req.user.name} created HR account for ${hrUser.email}`,
   });
 
   res.status(201).json({
     success: true,
     message: 'HR account created successfully.',
     user: { id: hrUser.id, name: hrUser.name, email: hrUser.email, role: hrUser.role },
+    employee: hrEmployee,
   });
 });
 
@@ -843,6 +910,9 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
   } = req.body;
 
   const store = loadStore();
+  ensureCompany(store);
+  ensureDefaultDepartments(store);
+  ensureDefaultLeaveTypes(store);
 
   if (name && (!firstName || !lastName)) {
     const parts = name.trim().split(/\s+/);
@@ -850,9 +920,26 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
     lastName = lastName || parts.slice(1).join(' ') || 'Staff';
   }
 
-  if (!employeeCode || typeof employeeCode !== 'string' || !employeeCode.trim()) {
-    employeeCode = `EMP-${String(store.employees.length + 1).padStart(3, '0')}`;
+  if (typeof firstName !== 'string' || !firstName.trim() || firstName.length > 100 ||
+      typeof lastName !== 'string' || !lastName.trim() || lastName.length > 100 ||
+      typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return res.status(400).json({ error: 'Valid employee name and corporate email are required.' });
   }
+
+  const cleanEmail = email.trim().toLowerCase();
+
+  // If cleanCode is empty or already in use, generate a guaranteed unique code
+  let cleanCode = typeof employeeCode === 'string' && employeeCode.trim() ? employeeCode.trim().toUpperCase() : '';
+  if (!cleanCode || store.employees.some(e => e.employeeCode === cleanCode)) {
+    cleanCode = generateNextEmployeeCode(store);
+  }
+
+  // Prevent duplicate employees with identical email
+  const existingEmployee = store.employees.find(e => e.email === cleanEmail);
+  if (existingEmployee) {
+    return res.status(409).json({ error: `An employee with email '${cleanEmail}' already exists (${existingEmployee.employeeCode}).` });
+  }
+
   if (!departmentId || typeof departmentId !== 'string') {
     departmentId = store.departments[0]?.id || 'dept_gen';
   }
@@ -866,24 +953,7 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
     basicSalary = 75000;
   }
 
-  if (typeof firstName !== 'string' || !firstName.trim() || firstName.length > 100 ||
-      typeof lastName !== 'string' || !lastName.trim() || lastName.length > 100 ||
-      typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-    return res.status(400).json({ error: 'Valid employee name and corporate email are required.' });
-  }
-
-  const cleanEmail = email.trim().toLowerCase();
-  const cleanCode = employeeCode.trim().toUpperCase();
-
-  // Unique checks
-  if (store.employees.some(e => e.employeeCode === cleanCode)) {
-    return res.status(409).json({ error: `Employee code '${cleanCode}' is already registered.` });
-  }
-  if (store.employees.some(e => e.email === cleanEmail) || store.users.some(u => u.email === cleanEmail)) {
-    return res.status(409).json({ error: `Email '${cleanEmail}' is already assigned to an account.` });
-  }
-
-  const dept = store.departments.find(d => d.id === departmentId);
+  const dept = store.departments.find(d => d.id === departmentId) || store.departments[0] || { id: 'dept_gen', name: 'General' };
   const deptName = dept ? dept.name : 'General';
 
   const employeeId = `emp_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
@@ -891,12 +961,12 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
     id: employeeId,
     companyId: store.company.id,
     employeeCode: cleanCode,
-    firstName,
-    lastName,
+    firstName: firstName.trim(),
+    lastName: lastName.trim(),
     email: cleanEmail,
     phone: phone || '',
     address: address || '',
-    departmentId,
+    departmentId: dept.id,
     departmentName: deptName,
     designation: designation || 'Staff',
     joiningDate,
@@ -912,26 +982,31 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
   const tempPassword = isDirectPassword ? null : `TempPass!${Math.floor(1000 + Math.random() * 9000)}`;
   const passwordHash = await hashPassword(isDirectPassword ? password : tempPassword);
 
-  // Re-check unique identifiers after the async password hash to narrow concurrent duplicate races.
-  if (store.employees.some(e => e.employeeCode === cleanCode) || store.employees.some(e => e.email === cleanEmail) || store.users.some(u => u.email === cleanEmail)) {
-    return res.status(409).json({ error: 'Employee code or email was registered by another request.' });
+  // If a user account already exists with this email (e.g. registered before employee profile), link them
+  let linkedUser = store.users.find(u => u.email === cleanEmail);
+  if (linkedUser) {
+    linkedUser.employeeId = newEmployee.id;
+    if (isDirectPassword) {
+      linkedUser.passwordHash = passwordHash;
+      linkedUser.temporaryPassword = false;
+    }
+  } else {
+    linkedUser = {
+      id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      companyId: store.company.id,
+      employeeId: newEmployee.id,
+      name: `${newEmployee.firstName} ${newEmployee.lastName}`,
+      email: cleanEmail,
+      passwordHash,
+      role: 'employee',
+      temporaryPassword: !isDirectPassword,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    };
+    store.users.push(linkedUser);
   }
 
-  const newUser = {
-    id: `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    companyId: store.company.id,
-    employeeId: newEmployee.id,
-    name: `${firstName} ${lastName}`,
-    email: cleanEmail,
-    passwordHash,
-    role: 'employee',
-    temporaryPassword: !isDirectPassword,
-    isActive: true,
-    createdAt: new Date().toISOString(),
-  };
-
   store.employees.push(newEmployee);
-  store.users.push(newUser);
   saveStore(store);
 
   logAudit({
@@ -939,7 +1014,7 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
     action: 'REGISTER_EMPLOYEE',
     entity: 'Employee',
     entityId: newEmployee.id,
-    details: `Registered ${newEmployee.firstName} ${newEmployee.lastName} (${newEmployee.employeeCode}). Login provisioned with temporary password.`,
+    details: `Registered ${newEmployee.firstName} ${newEmployee.lastName} (${newEmployee.employeeCode}). Login provisioned.`,
   });
 
   res.status(201).json({
@@ -947,7 +1022,7 @@ router.post('/employees', authMiddleware, requireRole(['admin', 'hr']), async (r
     employee: newEmployee,
     temporaryCredentials: {
       email: cleanEmail,
-      temporaryPassword: tempPassword,
+      temporaryPassword: tempPassword || (isDirectPassword ? password : 'Provided during registration'),
     },
   });
 });

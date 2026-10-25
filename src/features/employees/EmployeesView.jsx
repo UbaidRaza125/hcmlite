@@ -125,10 +125,11 @@ export function EmployeesView() {
       let payload = { ...regForm };
       if (quickMode) {
         if (!regForm.name.trim()) throw new Error('Please enter the employee full name.');
+        if (!regForm.email.trim() || !regForm.email.includes('@')) throw new Error('Please enter a valid corporate email.');
         const parts = regForm.name.trim().split(/\s+/);
         payload.firstName = parts[0];
         payload.lastName = parts.slice(1).join(' ') || 'Employee';
-        payload.employeeCode = `EMP-${String(employees.length + 1).padStart(3, '0')}`;
+        payload.employeeCode = ''; // Automatically generated unique code
         payload.departmentId = regForm.departmentId || departments[0]?.id || 'dept_gen';
         payload.designation = 'Staff';
         payload.joiningDate = new Date().toISOString().split('T')[0];
@@ -148,10 +149,14 @@ export function EmployeesView() {
     e.preventDefault();
     setCreatingHr(true);
     try {
+      if (!hrForm.name.trim()) throw new Error('Please enter HR full name.');
+      if (!hrForm.email.trim() || !hrForm.email.includes('@')) throw new Error('Please enter a valid HR email.');
+      if (!hrForm.password || hrForm.password.length < 6) throw new Error('Password must be at least 6 characters.');
       await api.createHr(hrForm);
       alert(`HR account for ${hrForm.email} created successfully.`);
       setShowHrModal(false);
       setHrForm({ name: '', email: '', password: '' });
+      await loadEmployees();
     } catch (err) {
       alert(`Failed to create HR account: ${err.message}`);
     } finally {
@@ -264,7 +269,7 @@ export function EmployeesView() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {isAdmin && (
+          {(isAdmin || isHr) && (
             <Button
               variant="outline"
               size="sm"
