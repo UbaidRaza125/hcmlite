@@ -109,28 +109,21 @@ router.post('/setup/init', async (req, res) => {
 
   if (typeof companyName !== 'string' || !companyName.trim() || companyName.trim().length > 160 ||
       typeof adminEmail !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail.trim()) ||
-      typeof adminPassword !== 'string' || adminPassword.length < 8 || adminPassword.length > 128) {
-    return res.status(400).json({ error: 'Company name (1–160 chars), valid admin email, and password (8–128 chars) are required.' });
+      typeof adminPassword !== 'string' || adminPassword.length < 6 || adminPassword.length > 128) {
+    return res.status(400).json({ error: 'Company name (1–160 chars), valid admin email, and password (at least 6 chars) are required.' });
   }
-  const parsedOfficeLat = Number(officeLat);
-  const parsedOfficeLng = Number(officeLng);
-  const parsedRadius = Number(officeRadius);
-  const parsedGrace = Number(graceMinutes);
-  const parsedHalfDay = Number(halfDayHours);
-  if (!Number.isFinite(parsedOfficeLat) || parsedOfficeLat < -90 || parsedOfficeLat > 90 ||
-      !Number.isFinite(parsedOfficeLng) || parsedOfficeLng < -180 || parsedOfficeLng > 180 ||
-      !Number.isFinite(parsedRadius) || parsedRadius < 10 || parsedRadius > 5000 ||
-      !Number.isFinite(parsedGrace) || parsedGrace < 0 || parsedGrace > 180 ||
-      !Number.isFinite(parsedHalfDay) || parsedHalfDay <= 0 || parsedHalfDay > 12 ||
-      !/^([01]\d|2[0-3]):[0-5]\d$/.test(officeStart)) {
-    return res.status(400).json({ error: 'Invalid office start, grace period, half-day threshold, or office geofence settings.' });
-  }
+  const parsedOfficeLat = officeLat !== undefined && Number.isFinite(Number(officeLat)) ? Number(officeLat) : 24.8607;
+  const parsedOfficeLng = officeLng !== undefined && Number.isFinite(Number(officeLng)) ? Number(officeLng) : 67.0011;
+  const parsedRadius = officeRadius !== undefined && Number.isFinite(Number(officeRadius)) && Number(officeRadius) >= 10 ? Number(officeRadius) : 150;
+  const parsedGrace = graceMinutes !== undefined && Number.isFinite(Number(graceMinutes)) ? Number(graceMinutes) : 15;
+  const parsedHalfDay = halfDayHours !== undefined && Number.isFinite(Number(halfDayHours)) ? Number(halfDayHours) : 5;
+  const validOfficeStart = typeof officeStart === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(officeStart) ? officeStart : '09:00';
 
   // 1. Create company
   const company = {
     id: `comp_${Date.now()}`,
-    name: companyName,
-    officeHoursStart: officeStart,
+    name: companyName.trim(),
+    officeHoursStart: validOfficeStart,
     graceMinutes: parsedGrace,
     halfDayHours: parsedHalfDay,
     weekendDays: [0, 6], // Sunday, Saturday
@@ -277,7 +270,46 @@ router.post('/auth/register-employee', async (req, res) => {
 
   const store = loadStore();
   if (!store.company) {
-    return res.status(400).json({ error: 'System is not configured yet. Complete first-run setup first.' });
+    const defaultCompany = {
+      id: `comp_${Date.now()}`,
+      name: 'Apex Enterprises',
+      officeHoursStart: '09:00',
+      graceMinutes: 15,
+      halfDayHours: 5,
+      weekendDays: [0, 6],
+      officeLat: 24.8607,
+      officeLng: 67.0011,
+      officeRadius: 150,
+      setupCompletedAt: new Date().toISOString(),
+    };
+    const currentYear = new Date().getFullYear();
+    store.company = defaultCompany;
+    store.departments = [
+      { id: 'dept_eng', companyId: defaultCompany.id, name: 'Engineering', code: 'ENG' },
+      { id: 'dept_hr', companyId: defaultCompany.id, name: 'Human Resources', code: 'HR' },
+      { id: 'dept_fin', companyId: defaultCompany.id, name: 'Finance', code: 'FIN' },
+      { id: 'dept_ops', companyId: defaultCompany.id, name: 'Operations', code: 'OPS' },
+      { id: 'dept_mkt', companyId: defaultCompany.id, name: 'Marketing', code: 'MKT' },
+    ];
+    store.designations = [
+      { id: 'desig_se', title: 'Software Engineer', level: 'L2' },
+      { id: 'desig_sse', title: 'Senior Software Engineer', level: 'L3' },
+      { id: 'desig_pm', title: 'Product Manager', level: 'L3' },
+      { id: 'desig_hrg', title: 'HR Generalist', level: 'L2' },
+      { id: 'desig_fa', title: 'Financial Analyst', level: 'L2' },
+    ];
+    store.leaveTypes = [
+      { id: 'lt_annual', companyId: defaultCompany.id, name: 'Annual Leave', quota: 14, isPaid: true },
+      { id: 'lt_casual', companyId: defaultCompany.id, name: 'Casual Leave', quota: 10, isPaid: true },
+      { id: 'lt_sick', companyId: defaultCompany.id, name: 'Sick Leave', quota: 8, isPaid: true },
+      { id: 'lt_unpaid', companyId: defaultCompany.id, name: 'Unpaid Leave', quota: 30, isPaid: false },
+    ];
+    store.holidays = [
+      { id: 'hol_1', companyId: defaultCompany.id, name: 'New Year', date: `${currentYear}-01-01` },
+      { id: 'hol_2', companyId: defaultCompany.id, name: 'Labour Day', date: `${currentYear}-05-01` },
+      { id: 'hol_3', companyId: defaultCompany.id, name: 'Independence Day', date: `${currentYear}-08-14` },
+      { id: 'hol_4', companyId: defaultCompany.id, name: 'Quaid-e-Azam Day', date: `${currentYear}-12-25` },
+    ];
   }
 
   const cleanEmail = email.trim().toLowerCase();

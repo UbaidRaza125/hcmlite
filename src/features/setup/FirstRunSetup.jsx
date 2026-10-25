@@ -4,7 +4,7 @@ import { Button, Input, FormField } from '../../components/common/UIComponents.j
 import { api } from '../../lib/api.js';
 import { useAuth } from '../../context/AuthContext.jsx';
 
-export function FirstRunSetup() {
+export function FirstRunSetup({ onSwitchToSignIn }) {
   const { completeSetup } = useAuth();
   const [formData, setFormData] = useState({
     companyName: 'Apex Enterprises',
@@ -107,35 +107,6 @@ export function FirstRunSetup() {
                   />
                 </FormField>
               </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <FormField label="Office Latitude" hint="GPS lat">
-                  <Input
-                    type="number"
-                    step="0.0001"
-                    value={formData.officeLat}
-                    onChange={(e) => setFormData({ ...formData, officeLat: e.target.value })}
-                    required
-                  />
-                </FormField>
-                <FormField label="Office Longitude" hint="GPS lng">
-                  <Input
-                    type="number"
-                    step="0.0001"
-                    value={formData.officeLng}
-                    onChange={(e) => setFormData({ ...formData, officeLng: e.target.value })}
-                    required
-                  />
-                </FormField>
-                <FormField label="Geofence Radius" hint="meters">
-                  <Input
-                    type="number"
-                    value={formData.officeRadius}
-                    onChange={(e) => setFormData({ ...formData, officeRadius: e.target.value })}
-                    required
-                  />
-                </FormField>
-              </div>
             </div>
 
             {/* Step 3: Admin Account */}
@@ -184,11 +155,20 @@ export function FirstRunSetup() {
             </Button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-slate-100 text-center">
-            <p className="text-[11px] text-slate-500">
-              This initialization is run once. Once established, configuration is locked under Admin control.
-            </p>
-          </div>
+          {onSwitchToSignIn && (
+            <div className="mt-4 pt-4 border-t border-slate-100 text-center">
+              <p className="text-xs text-slate-600">
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={onSwitchToSignIn}
+                  className="font-bold text-indigo-600 hover:text-indigo-800 hover:underline cursor-pointer"
+                >
+                  Sign In here
+                </button>
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -31,14 +31,9 @@ export default function App() {
     );
   }
 
-  // First-run setup detection
-  if (!isConfigured) {
-    return <FirstRunSetup />;
-  }
-
-  // Not authenticated
+  // Not authenticated: render unified auth page (defaults to signin, or signup if unconfigured)
   if (!user) {
-    return <LoginPage />;
+    return <LoginPage initialMode={isConfigured ? 'signin' : 'signup'} />;
   }
 
   const openAiWithPrompt = (prompt) => {
